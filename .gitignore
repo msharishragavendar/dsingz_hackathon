@@ -1,0 +1,41 @@
+# Python virtual environment
+query/
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Environment files
+.env
+.env.local
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Charts output (optional - remove if you want to track these)
+charts/*.png
+charts/*.jpg
+
+# OS files
+.DS_Store
+Thumbs.db

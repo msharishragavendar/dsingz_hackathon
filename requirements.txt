@@ -1,0 +1,26 @@
+# Core dependencies for NL2SQL with AI/ML Analytics Engine
+
+# API requests
+requests>=2.28.0
+
+# Database
+mysql-connector-python>=8.0.0
+
+# Analytics & Scientific Computing
+numpy>=1.21.0
+scipy>=1.9.0
+
+# Visualization
+matplotlib>=3.5.0
+
+# Scheduling (for automated reports)
+apscheduler>=3.9.0
+
+# Templating (for report generation)
+jinja2>=3.0.0
+
+# Web API Server
+flask>=2.3.0
+flask-cors>=4.0.0
+
+
