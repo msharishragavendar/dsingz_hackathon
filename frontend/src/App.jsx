@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-
 // ========================================
 // Main App Component
 // ========================================
@@ -85,6 +84,7 @@ function App() {
         setShowSuggestions(false)
         textareaRef.current.focus()
     }
+
     // 4. Settings Logic
     const openSettings = () => {
         fetch('/api/settings')
@@ -167,8 +167,6 @@ function App() {
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            // If suggestions are open, select the first one (optional)
-            // For now, we prioritize sending logic
             handleSubmit()
         }
     }
@@ -190,10 +188,18 @@ function App() {
                     <span className="header-icon">🧠</span>
                     <span>NL2SQL Analytics</span>
                 </div>
-                <button className="new-chat-btn" onClick={handleNewChat}>
-                    <span>+</span>
-                    <span>New Chat</span>
-                </button>
+                
+                {/* --- FIX START: Added Buttons Container with GearIcon --- */}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="new-chat-btn" onClick={openSettings} title="Settings">
+                        <GearIcon />
+                    </button>
+                    <button className="new-chat-btn" onClick={handleNewChat} title="New Chat">
+                        <span>+</span>
+                        <span>New Chat</span>
+                    </button>
+                </div>
+                {/* --- FIX END --- */}
             </header>
 
             {/* Chat Container */}
@@ -215,7 +221,6 @@ function App() {
 
             {/* Input Area */}
             <div className="input-area">
-                {/* 4. Suggestion Popup (Now positioned correctly via CSS) */}
                 {showSuggestions && (
                     <div className="suggestions-popup">
                         {filteredEmployees.map((emp, idx) => (
@@ -432,13 +437,13 @@ function TypingIndicator() {
     )
 }
 
+// Ensure GearIcon is defined and used
 const GearIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V4a2 2 0 0 0-2-2z"></path>
         <circle cx="12" cy="12" r="3"></circle>
     </svg>
 )
-
 
 function SendIcon() {
     return (

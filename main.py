@@ -420,7 +420,7 @@ def process_query(question: str) -> Dict[str, Any]:
         # --- OTHER PATHS ---
         sql_query = query_info.get("sql_query")
         if not sql_query:
-            result["response"] = "Could not understand the query."
+            result["response"] = "Could not understand the query/ LLM API key"
             return result
 
         print(f"✅ Type: {q_type} | SQL: {sql_query}")
