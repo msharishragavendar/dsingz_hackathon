@@ -331,3 +331,108 @@ class Visualizer:
         plt.close()
         
         return {"filepath": filepath, "status": "success", "type": "pie_chart"}
+
+    def create_profile_dashboard(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a comprehensive profile dashboard image.
+        
+        Args:
+            data: Profile data from ProfileEngine
+            
+        Returns:
+            Dict with filepath
+        """
+        if not self._check_dependencies():
+            return {"error": "matplotlib not installed", "status": "failed"}
+
+        basic = data.get('basic_info', {})
+        stats = data.get('attendance_stats', {})
+        skills = data.get('skills', [])
+        
+        # Create figure with GridSpec
+        fig = plt.figure(figsize=(12, 8))
+        gs = fig.add_gridspec(2, 2)
+        
+        # 1. Text Info (Top Left)
+        ax_text = fig.add_subplot(gs[0, 0])
+        ax_text.axis('off')
+        
+        name = f"{basic.get('first_name', 'Unknown')} {basic.get('last_name', '')}"
+        role = basic.get('job_role', 'N/A')
+        join_date = basic.get('date_of_joining', 'N/A')
+        email = basic.get('official_email', 'N/A')
+        
+        text_str = (
+            f"👤 NAME: {name}\n"
+            f"💼 ROLE: {role}\n"
+            f"📅 JOINED: {join_date}\n"
+            f"📧 EMAIL: {email}\n\n"
+            f"📊 ATTENDANCE RATE: {stats.get('attendance_rate', 0)}%\n"
+            f"✅ PRESENT: {stats.get('present', 0)} days\n"
+            f"🏠 WFH: {stats.get('wfh', 0)} days"
+        )
+        
+        ax_text.text(0.1, 0.5, text_str, fontsize=12, va='center', family='monospace')
+        ax_text.set_title("Employee Profile", fontsize=14, fontweight='bold')
+        
+        # 2. Attendance Pie Chart (Top Right)
+        ax_pie = fig.add_subplot(gs[0, 1])
+        pie_labels = []
+        pie_values = []
+        for k in ['present', 'late', 'absent', 'leave', 'wfh']:
+            val = stats.get(k, 0)
+            if val > 0:
+                pie_labels.append(k.upper())
+                pie_values.append(val)
+        
+        if pie_values:
+            ax_pie.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', colors=plt.cm.Set3.colors)
+            ax_pie.set_title("Attendance Distribution", fontsize=12)
+        else:
+            ax_pie.text(0.5, 0.5, "No Data", ha='center')
+        
+        # 3. Skills Bar Chart (Bottom Left)
+        ax_bar = fig.add_subplot(gs[1, 0])
+        if skills:
+            # Sort skills by level (expert=3, intermediate=2, beginner=1)
+            lvl_map = {'expert': 3, 'intermediate': 2, 'beginner': 1, 'trainee': 0.5}
+            sorted_skills = sorted(skills, key=lambda x: lvl_map.get(x.get('level', 'beginner').lower(), 0), reverse=True)[:5]
+            
+            skill_names = [s['technology_name'] for s in sorted_skills]
+            skill_lvls = [lvl_map.get(s['level'].lower(), 1) for s in sorted_skills]
+            
+            bars = ax_bar.barh(skill_names, skill_lvls, color='#00BCD4')
+            ax_bar.set_yticks(range(len(skill_names)))
+            ax_bar.set_yticklabels(skill_names)
+            ax_bar.set_xlabel("Proficiency Level")
+            ax_bar.set_title("Top Skills", fontsize=12)
+            
+            # Custom x-ticks
+            ax_bar.set_xticks([1, 2, 3])
+            ax_bar.set_xticklabels(['Beginner', 'Interim', 'Expert'])
+        else:
+            ax_bar.text(0.5, 0.5, "No Skills Listed", ha='center')
+            ax_bar.axis('off')
+
+        # 4. Projects List (Bottom Right)
+        ax_proj = fig.add_subplot(gs[1, 1])
+        ax_proj.axis('off')
+        projects = data.get('projects', [])
+        
+        proj_str = "PROJECTS:\n\n"
+        if projects:
+            for p in projects[:4]:  # Show max 4
+                proj_str += f"• {p.get('name')} ({p.get('project_status')})\n"
+        else:
+            proj_str += "(No active projects)"
+            
+        ax_proj.text(0.1, 0.8, proj_str, fontsize=10, va='top', wrap=True)
+
+        plt.tight_layout()
+        
+        filename = f"profile_{data['uuid']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filepath = os.path.join(self.output_dir, filename)
+        plt.savefig(filepath, dpi=100)
+        plt.close()
+        
+        return {"filepath": filepath, "status": "success", "type": "profile_dashboard"}

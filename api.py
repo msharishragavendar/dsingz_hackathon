@@ -61,7 +61,8 @@ def chat():
             "sql_query": result.get('sql_query'),
             "data": result.get('sql_data', [])[:20],  # Limit to 20 records
             "record_count": len(result.get('sql_data', [])),
-            "chart": None
+            "chart": None,
+            "profile_data": result.get('profile_data')
         }
         
         # Include chart if generated

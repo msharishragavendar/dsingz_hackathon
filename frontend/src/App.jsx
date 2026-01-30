@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import ProfileDashboard from './components/ProfileDashboard'
+
 
 // ========================================
 // Main App Component
@@ -177,6 +179,9 @@ function WelcomeScreen({ onSuggestionClick }) {
     )
 }
 
+
+// ========================================
+
 // ========================================
 // Message Component
 // ========================================
@@ -211,8 +216,13 @@ function Message({ message }) {
                     {message.content}
                 </ReactMarkdown>
 
+                {/* Profile Dashboard Display */}
+                {message.profile_data && (
+                    <ProfileDashboard data={message.profile_data} />
+                )}
+
                 {/* Data Table Display */}
-                {message.data && message.data.length > 0 && (
+                {message.data && message.data.length > 0 && !message.profile_data && (
                     <DataTable data={message.data} />
                 )}
 
@@ -223,8 +233,8 @@ function Message({ message }) {
                     </div>
                 )}
 
-                {/* Chart Display */}
-                {message.chart && (
+                {/* Chart Display (Old method, fallback) */}
+                {message.chart && !message.profile_data && (
                     <div className="chart-container">
                         <img src={message.chart} alt="Generated Chart" />
                     </div>

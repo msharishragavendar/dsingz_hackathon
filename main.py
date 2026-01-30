@@ -12,19 +12,20 @@ from datetime import datetime
 
 from analytics import AnalyticsProcessor
 from analytics.nl_response_generator import NLResponseGenerator
+from analytics.profile_engine import ProfileEngine
 
 
 # =========================
 # CONFIG
 # =========================
-OPENROUTER_API_KEY = "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"  # Replace with your key
+OPENROUTER_API_KEY = "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"  # Replace with your key
 MODEL = "deepseek/deepseek-chat"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 DB_CONFIG = {
     "host": "localhost",
     "user": "root",
-    "password": "data@123",
+    "password": "kavin@123",
     "database": "dsingz"
 }
 
@@ -98,7 +99,9 @@ Analyze the user's question and determine if it requires:
 3. PATTERN_DETECTION - Pattern recognition (seasonal, behavioral)
 4. ANOMALY_DETECTION - Unusual behavior detection
 5. TREND_ANALYSIS - Time-based trends (improving/declining)
+5. TREND_ANALYSIS - Time-based trends (improving/declining)
 6. COMPARISON - Employee vs employee or entity comparison
+7. PERSON_PROFILE - specific questions about a person's details, skills, or history
 
 TASK 2: GENERATE SQL (if applicable)
 If the query needs data from database, generate ONLY valid MySQL 8+ SQL.
@@ -108,7 +111,7 @@ List what post-SQL processing is required.
 
 OUTPUT FORMAT (JSON):
 {{
-  "query_type": "DIRECT_SQL|SQL_WITH_STATS|PATTERN_DETECTION|ANOMALY_DETECTION|TREND_ANALYSIS|COMPARISON",
+  "query_type": "DIRECT_SQL|SQL_WITH_STATS|PATTERN_DETECTION|ANOMALY_DETECTION|TREND_ANALYSIS|COMPARISON|PERSON_PROFILE",
   "sql_query": "SELECT ... (or null if no SQL needed)",
   "analysis_required": ["variance", "trend", "anomaly", "consistency", "pattern", "seasonal_pattern"],
   "metric": "attendance|punctuality|work_hours|leaves",
@@ -126,7 +129,9 @@ STRICT RULES:
 - attendance_records.employee_id references employees.uuid (NOT employees.employee_id)
 - intern_attendance_records.intern_id references interns.uuid (NOT interns.intern_id)
 - Use: (SELECT uuid FROM employees WHERE LOWER(first_name) = LOWER('name')) for employee lookups
+- Use: (SELECT uuid FROM employees WHERE LOWER(first_name) = LOWER('name')) for employee lookups
 - Use: (SELECT uuid FROM interns WHERE LOWER(first_name) = LOWER('name')) for intern lookups
+- For PERSON_PROFILE: Generate SQL to fetch ONLY the uuid of the person (e.g. SELECT uuid FROM employees WHERE first_name... LIMIT 1)
 
 DATABASE SCHEMA:
 
@@ -326,6 +331,34 @@ def process_query(question: str) -> Dict[str, Any]:
             # Step 2: Execute SQL
             sql_data = execute_sql(sql_query)
             result["sql_data"] = sql_data
+            
+            # Special handling for PERSON_PROFILE
+            if query_info.get("query_type") == "PERSON_PROFILE" and sql_data:
+                person_uuid = sql_data[0].get("uuid")
+                if person_uuid:
+                    print(f"👤 Generating profile for UUID: {person_uuid}")
+                    
+                    # Initialize engines
+                    prof_engine = ProfileEngine(DB_CONFIG)
+                    profile_data = prof_engine.get_profile_data(person_uuid)
+                    
+                    # Generate dashboard
+                    processor = AnalyticsProcessor(chart_output_dir="./charts") # Reuse/New instance
+                    viz_result = processor.visualizer.create_profile_dashboard(profile_data)
+                    result["visualization"] = viz_result
+                    result["profile_data"] = profile_data
+                    
+                    # Generate text response
+                    basic = profile_data.get("basic_info", {})
+                    stats = profile_data.get("attendance_stats", {})
+                    
+                    result["response"] = (
+                        f"Here is the profile for {basic.get('first_name')} {basic.get('last_name')}. "
+                        f"They work as a {basic.get('job_role')} and joined on {basic.get('date_of_joining')}. "
+                        f"Their current attendance rate is {stats.get('attendance_rate')}% with {stats.get('present')} present days. "
+                        f"I've generated a visual dashboard with more details."
+                    )
+                    return result
             
             if not sql_data:
                 result["response"] = "No data found for your query."
