@@ -14,6 +14,7 @@ from .leave_tracker import LeaveTracker
 from .email_notifier import EmailNotifier
 from .report_generator import ReportGenerator
 from .scheduler import ReportScheduler, get_scheduler
+from .skill_radar import SkillRadarChart, get_skill_aggregation_sql, get_skill_aggregation_sql_by_name, process_skill_data
 
 __all__ = [
     'StatsEngine',
@@ -28,6 +29,10 @@ __all__ = [
     'EmailNotifier',
     'ReportGenerator',
     'ReportScheduler',
-    'get_scheduler'
+    'get_scheduler',
+    'SkillRadarChart',
+    'get_skill_aggregation_sql',
+    'get_skill_aggregation_sql_by_name',
+    'process_skill_data'
 ]
 

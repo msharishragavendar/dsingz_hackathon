@@ -10,15 +10,15 @@ import mysql.connector
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from analytics import AnalyticsProcessor
+from analytics import AnalyticsProcessor, SkillRadarChart, process_skill_data
 from analytics.nl_response_generator import NLResponseGenerator
 
 
 # =========================
 # CONFIG
 # =========================
-OPENROUTER_API_KEY = "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"  # Replace with your key
-MODEL = "deepseek/deepseek-chat"
+OPENROUTER_API_KEY = "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"  # Replace with your key
+MODEL = "deepseek/deepseek-chat"  # Free model
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 DB_CONFIG = {
@@ -99,6 +99,7 @@ Analyze the user's question and determine if it requires:
 4. ANOMALY_DETECTION - Unusual behavior detection
 5. TREND_ANALYSIS - Time-based trends (improving/declining)
 6. COMPARISON - Employee vs employee or entity comparison
+7. SKILL_RADAR - Employee skill profile visualization (spider/radar chart)
 
 TASK 2: GENERATE SQL (if applicable)
 If the query needs data from database, generate ONLY valid MySQL 8+ SQL.
@@ -108,14 +109,33 @@ List what post-SQL processing is required.
 
 OUTPUT FORMAT (JSON):
 {{
-  "query_type": "DIRECT_SQL|SQL_WITH_STATS|PATTERN_DETECTION|ANOMALY_DETECTION|TREND_ANALYSIS|COMPARISON",
+  "query_type": "DIRECT_SQL|SQL_WITH_STATS|PATTERN_DETECTION|ANOMALY_DETECTION|TREND_ANALYSIS|COMPARISON|SKILL_RADAR",
   "sql_query": "SELECT ... (or null if no SQL needed)",
   "analysis_required": ["variance", "trend", "anomaly", "consistency", "pattern", "seasonal_pattern"],
-  "metric": "attendance|punctuality|work_hours|leaves",
+  "metric": "attendance|punctuality|work_hours|leaves|skills",
   "time_period": "last_month|last_quarter|last_year",
   "employee_ids": [],
-  "visualization": "line_chart|bar_chart|heatmap|pie_chart|null"
+  "visualization": "line_chart|bar_chart|heatmap|pie_chart|radar_chart|null"
 }}
+
+SPECIAL CASE - SKILL_RADAR:
+If the user asks for a skill chart, skill profile, spider chart, or radar chart for an employee:
+- Set query_type to "SKILL_RADAR"
+- Set visualization to "radar_chart"
+- Generate SQL that aggregates skills by category with this structure:
+  SELECT c.name AS category_name, 
+         AVG(CASE es.level WHEN 'trainee' THEN 1 WHEN 'beginner' THEN 2 WHEN 'intermediate' THEN 3 WHEN 'expert' THEN 4 ELSE 0 END) AS avg_skill_score,
+         COUNT(DISTINCT t.uuid) AS technology_count,
+         GROUP_CONCAT(DISTINCT t.technology_name SEPARATOR ', ') AS technologies,
+         e.first_name, e.last_name
+  FROM employees e
+  JOIN employees_skills es ON es.employee_id = e.uuid
+  JOIN employee_skill_technologies est ON est.employee_skill_id = es.uuid
+  JOIN technologies t ON est.technology_id = t.uuid
+  JOIN categories c ON c.uuid = t.category_id
+  WHERE LOWER(e.first_name) = LOWER('employee_name')
+  GROUP BY c.uuid, c.name, e.first_name, e.last_name
+  ORDER BY c.name
 
 STRICT RULES:
 - Output ONLY valid JSON
@@ -296,6 +316,90 @@ def execute_sql(sql_query: str) -> List[Dict[str, Any]]:
 
 
 # =========================
+# SKILL RADAR PROCESSING
+# =========================
+def _process_skill_radar(result: Dict[str, Any], sql_data: List[Dict], query_info: Dict) -> Dict[str, Any]:
+    """
+    Process skill radar chart generation.
+    Handles edge cases like insufficient categories.
+    """
+    processed = process_skill_data(sql_data)
+    categories = processed.get("categories", [])
+    scores = processed.get("scores", [])
+    employee_name = processed.get("employee_name", "Employee")
+    
+    # Check if we have enough categories for a radar chart
+    if len(categories) < 3:
+        # Not enough categories for radar - generate bar chart instead
+        from analytics import Visualizer
+        visualizer = Visualizer(output_dir="./charts")
+        
+        if len(categories) > 0:
+            # Generate line chart for skills
+            chart_result = visualizer.line_chart(
+                x_values=categories,
+                y_values=scores,
+                title=f"Skill Profile: {employee_name}",
+                x_label="Skill Category",
+                y_label="Skill Level (1-4)",
+                color="#4A90D9"
+            )
+            
+            # Build skill details for response
+            level_names = {1: "Trainee", 2: "Beginner", 3: "Intermediate", 4: "Expert"}
+            skill_list = []
+            for cat, score in zip(categories, scores):
+                level = level_names.get(round(score), f"Level {score:.1f}")
+                skill_list.append(f"• {cat}: {level} ({score:.1f}/4)")
+            
+            skills_text = "\n".join(skill_list)
+            
+            result["visualization"] = chart_result
+            result["response"] = (
+                f"📊 **Skill Profile for {employee_name}**\n\n"
+                f"📈 Bar chart generated (radar chart requires 3+ categories)\n\n"
+                f"**Skills ({len(categories)} categories):**\n{skills_text}"
+            )
+        else:
+            result["response"] = f"📊 No skills found for {employee_name}."
+            result["visualization"] = None
+        
+        result["analytics"] = {
+            "type": "skill_profile_bar",
+            "categories_found": len(categories),
+            "categories": categories,
+            "scores": scores,
+            "employee_name": employee_name,
+            "details": processed.get("details", [])
+        }
+        return result
+    
+    # Generate radar chart
+    radar = SkillRadarChart(output_dir="./charts")
+    chart_result = radar.generate_radar_chart(
+        categories=categories,
+        scores=scores,
+        employee_name=employee_name
+    )
+    
+    result["visualization"] = chart_result
+    result["analytics"] = {
+        "type": "skill_profile",
+        "categories": categories,
+        "scores": scores,
+        "employee_name": employee_name,
+        "details": processed.get("details", [])
+    }
+    
+    if chart_result.get("status") == "success":
+        result["response"] = chart_result.get("interpretation", f"Generated skill radar chart for {employee_name}")
+    else:
+        result["response"] = f"Could not generate chart: {chart_result.get('message', 'Unknown error')}"
+    
+    return result
+
+
+# =========================
 # MAIN PIPELINE
 # =========================
 def process_query(question: str) -> Dict[str, Any]:
@@ -331,18 +435,26 @@ def process_query(question: str) -> Dict[str, Any]:
                 result["response"] = "No data found for your query."
                 return result
             
-            # Step 3: Run analytics
-            processor = AnalyticsProcessor(chart_output_dir="./charts")
-            analytics_result = processor.process(query_info, sql_data)
+            # Step 3: Check for skill radar chart
+            query_type = query_info.get("query_type", "")
+            visualization_type = query_info.get("visualization", "")
             
-            result["analytics"] = analytics_result.get("analysis")
-            result["visualization"] = analytics_result.get("visualization")
-            
-            # Step 4: Generate natural language response
-            nl_generator = NLResponseGenerator(OPENROUTER_API_KEY, OPENROUTER_URL)
-            result["response"] = nl_generator.generate(
-                query_info, sql_data, result["analytics"]
-            )
+            if query_type == "SKILL_RADAR" or visualization_type == "radar_chart":
+                # Handle skill radar chart
+                result = _process_skill_radar(result, sql_data, query_info)
+            else:
+                # Step 3: Run normal analytics
+                processor = AnalyticsProcessor(chart_output_dir="./charts")
+                analytics_result = processor.process(query_info, sql_data)
+                
+                result["analytics"] = analytics_result.get("analysis")
+                result["visualization"] = analytics_result.get("visualization")
+                
+                # Step 4: Generate natural language response
+                nl_generator = NLResponseGenerator(OPENROUTER_API_KEY, OPENROUTER_URL)
+                result["response"] = nl_generator.generate(
+                    query_info, sql_data, result["analytics"]
+                )
         else:
             result["response"] = "Could not generate SQL for your question."
     

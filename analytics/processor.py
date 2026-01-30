@@ -12,6 +12,7 @@ from .time_series import TimeSeriesAnalyzer
 from .anomaly_detector import AnomalyDetector
 from .pattern_analyzer import PatternAnalyzer
 from .visualizer import Visualizer
+from .skill_radar import SkillRadarChart, process_skill_data
 
 
 class AnalyticsProcessor:
