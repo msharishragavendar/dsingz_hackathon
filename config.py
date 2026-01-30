@@ -9,13 +9,13 @@ DB_CONFIG = {
     "host": "127.0.0.1",
     "user": "root",
     "password": "jinu",
-    "database": "dsingz"
+    "database": "dz"
 }
 
 # =========================
 # API CONFIG
 # =========================
-OPENROUTER_API_KEY = "sk-or-v1-dd61a1ec602ebd1eb5c03b43e90b92aae5cf7"  # Replace with your key
+OPENROUTER_API_KEY = "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"  # Replace with your key
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "deepseek/deepseek-chat"
