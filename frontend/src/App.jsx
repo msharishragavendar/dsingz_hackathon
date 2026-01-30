@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
+
 // ========================================
 // Main App Component
 // ========================================
@@ -10,6 +11,9 @@ function App() {
     const [messages, setMessages] = useState([])
     const [input, setInput] = useState('')
     const [isLoading, setIsLoading] = useState(false)
+
+    const [showSettings, setShowSettings] = useState(false)
+    const [settings, setSettings] = useState(null)
     
     // Autocomplete States
     const [employees, setEmployees] = useState([])
@@ -80,6 +84,39 @@ function App() {
         setInput(newText)
         setShowSuggestions(false)
         textareaRef.current.focus()
+    }
+    // 4. Settings Logic
+    const openSettings = () => {
+        fetch('/api/settings')
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) setSettings(data.settings)
+            })
+            .catch(err => console.error("Failed to fetch settings", err))
+        setShowSettings(true)
+    }
+
+    const saveSettings = () => {
+        fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(settings)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) setShowSettings(false)
+            else alert("Error saving settings")
+        })
+    }
+
+    const updateSetting = (category, key, value) => {
+        setSettings(prev => ({
+            ...prev,
+            [category]: {
+                ...prev[category],
+                [key]: parseInt(value)
+            }
+        }))
     }
 
     const handleSubmit = async (messageText = input) => {
@@ -213,6 +250,36 @@ function App() {
                 </div>
                 <p className="input-hint">Press Enter to send, Shift+Enter for new line</p>
             </div>
+
+            {/* Settings Modal */}
+            {showSettings && settings && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
+                            <h3 style={{margin:0}}>⚙️ Salary Config</h3>
+                            <button onClick={() => setShowSettings(false)} style={{background:'none',border:'none',fontSize:'1.2rem',cursor:'pointer'}}>✕</button>
+                        </div>
+                        
+                        <div className="setting-group">
+                            <h4>Hourly Rates (₹)</h4>
+                            <label>Intern: <input type="number" value={settings.rates.intern} onChange={e => updateSetting('rates','intern',e.target.value)} /></label>
+                            <label>Employee: <input type="number" value={settings.rates.employee} onChange={e => updateSetting('rates','employee',e.target.value)} /></label>
+                            <label>Expert: <input type="number" value={settings.rates.expert} onChange={e => updateSetting('rates','expert',e.target.value)} /></label>
+                        </div>
+
+                        <div className="setting-group">
+                            <h4>Rules</h4>
+                            <label>Expected Monthly Hours: <input type="number" value={settings.rules.expected_hours} onChange={e => updateSetting('rules','expected_hours',e.target.value)} /></label>
+                            <label>Deficit Forgive Threshold (hrs): <input type="number" value={settings.rules.deficit_threshold} onChange={e => updateSetting('rules','deficit_threshold',e.target.value)} /></label>
+                        </div>
+
+                        <div className="modal-actions">
+                            <button className="btn-secondary" onClick={() => setShowSettings(false)}>Cancel</button>
+                            <button className="btn-primary" onClick={saveSettings}>Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
@@ -364,6 +431,14 @@ function TypingIndicator() {
         </div>
     )
 }
+
+const GearIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+    </svg>
+)
+
 
 function SendIcon() {
     return (

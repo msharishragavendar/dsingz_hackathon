@@ -1,0 +1,13 @@
+{
+    "rates": {
+        "intern": 50,
+        "employee": 100,
+        "expert": 200
+    },
+    "rules": {
+        "max_full_leaves": 1,
+        "max_half_leaves": 2,
+        "deficit_threshold": 1,
+        "expected_hours": 160
+    }
+}

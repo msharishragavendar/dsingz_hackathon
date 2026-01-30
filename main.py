@@ -35,7 +35,7 @@ except ImportError:
 from analytics import AnalyticsProcessor
 from analytics.nl_response_generator import NLResponseGenerator
 from analytics.email_notifier import EmailNotifier  # <--- NEW FEATURE
-
+from analytics.salary_calculator import SalaryCalculator
 
 # =========================
 # SECURITY: ANONYMIZATION
@@ -159,157 +159,62 @@ def extract_query_info(raw_output: str) -> Dict[str, Any]:
     return {"query_type": "DIRECT_SQL", "sql_query": raw_output}
 
 def sentence_to_sql(sentence: str) -> Dict[str, Any]:
-    # --- UPDATED PROMPT FOR EMAIL INTENT ---
     prompt = f"""
 You are an expert MySQL query generator with intelligent query classification capabilities.
 
-TASK 1: CLASSIFY THE QUERY TYPE
-Analyze the user's question and determine if it requires:
-1. DIRECT_SQL - Simple SQL query only
-2. SQL_WITH_STATS - SQL + statistical analysis (variance, averages, consistency)
-3. PATTERN_DETECTION - Pattern recognition (seasonal, behavioral)
-4. ANOMALY_DETECTION - Unusual behavior detection
-5. TREND_ANALYSIS - Time-based trends (improving/declining)
-6. COMPARISON - Employee vs employee or entity comparison
+TASK 1: CLASSIFY THE USER INTENT
+Analyze the user's question and determine the specific action required:
+1. DIRECT_SQL: Simple data retrieval (e.g., "List all employees", "Show attendance").
+2. SQL_WITH_STATS: Requires statistical analysis (variance, averages, consistency).
+3. PATTERN_DETECTION: Behavioral pattern recognition (seasonal leaves, late arrival habits).
+4. ANOMALY_DETECTION: Identifying unusual behavior or outliers.
+5. TREND_ANALYSIS: Time-based trends (e.g., "Is attendance improving?").
+6. COMPARISON: Comparing multiple entities (e.g., "Compare Rajesh and Suresh").
+7. CALCULATE_SALARY: User asks to calculate salary/pay.
+   - Triggers: "Calculate salary for X", "Payroll for X", "How much pay for X".
+   - Constraint: Do NOT generate SQL for salary calculation. Only extract 'target_name' and 'target_month'.
+8. SEND_EMAIL: User wants to send an email notification.
+   - Triggers: "Send email to...", "Notify X that...".
+   - Action: Generate SQL to fetch the email address of the target.
 
-TASK 2: GENERATE SQL (if applicable)
-If the query needs data from database, generate ONLY valid MySQL 8+ SQL.
-
-TASK 3: SPECIFY ADDITIONAL ANALYSIS (if needed)
-List what post-SQL processing is required.
-
-OUTPUT FORMAT (JSON):
-{{
-  "query_type": "DIRECT_SQL|SQL_WITH_STATS|PATTERN_DETECTION|ANOMALY_DETECTION|TREND_ANALYSIS|COMPARISON",
-  "sql_query": "SELECT ... (or null if no SQL needed)",
-  "analysis_required": ["variance", "trend", "anomaly", "consistency", "pattern", "seasonal_pattern"],
-  "metric": "attendance|punctuality|work_hours|leaves",
-  "time_period": "last_month|last_quarter|last_year",
-  "employee_ids": [],
-  "visualization": "line_chart|bar_chart|heatmap|pie_chart|null"
-}}
-
-STRICT RULES:
-- Output ONLY valid JSON
-- SQL must be valid MySQL 8+ syntax
-- No markdown, no comments, no explanations
-- CRITICAL: All non-aggregated columns in SELECT must be included in GROUP BY (MySQL ONLY_FULL_GROUP_BY mode)
-- When looking up a person by name, use LOWER(first_name) = LOWER('name') for case-insensitive matching
-- attendance_records.employee_id references employees.uuid (NOT employees.employee_id)
-- intern_attendance_records.intern_id references interns.uuid (NOT interns.intern_id)
-- Use: (SELECT uuid FROM employees WHERE LOWER(first_name) = LOWER('name')) for employee lookups
-- Use: (SELECT uuid FROM interns WHERE LOWER(first_name) = LOWER('name')) for intern lookups
+TASK 2: GENERATE SQL
+- If the query needs database data, generate VALID MySQL 8.0+ SQL.
+- CRITICAL: All non-aggregated columns in SELECT must be included in GROUP BY.
+- **Handling Names (CRITICAL):** People can be in the `employees` OR `interns` table.
+  - When querying by name, you MUST use `UNION ALL` to check both tables unless the user explicitly specifies "Intern" or "Employee".
+  - Example Pattern:
+    ```sql
+    SELECT first_name, date, status FROM employees e JOIN attendance_records ar ON e.uuid = ar.employee_id WHERE first_name='X'
+    UNION ALL
+    SELECT first_name, date, status FROM interns i JOIN intern_attendance_records iar ON i.uuid = iar.intern_id WHERE first_name='X'
+    ```
+- Use `LOWER(first_name) LIKE LOWER('%name%')` for case-insensitive matching.
 
 DATABASE SCHEMA:
-
-attendance_records(
-  uuid, employee_id, date,
-  check_in_time, check_out_time,
-  status, leave_deducted
-)
-
-categories(
-  uuid, name, description
-)
-
-designation(
-  uuid, designation, employee_id
-)
-
-employees(
-  uuid, employee_id, profile_image,
-  first_name, last_name,
-  official_email, password,
-  is_mfa_enabled, contact_no,
-  personal_email, pan_number,
-  date_of_joining,
-  system_role, job_role,
-  date_of_relieving
-)
-
-employees_skills(
-  uuid, employee_id,
-  technology_ids, level
-)
-
-employee_designation(
-  id
-)
-
-employee_skill_technologies(
-  id, employee_skill_id,
-  technology_id
-)
-
-holidays(
-  uuid, name, date, description
-)
-
-interns(
-  uuid, intern_id, profile_image,
-  first_name, last_name,
-  personal_email, contact_no,
-  role, status,
-  university_name, department,
-  date_of_joining, date_of_relieving
-)
-
-interns_skills(
-  uuid, intern_id,
-  technology_ids, level
-)
-
-intern_attendance_records(
-  uuid, intern_id, date,
-  check_in_time, check_out_time,
-  status, leave_deducted
-)
-
-intern_leaves(
-  uuid, intern_id,
-  request_type, type,
-  start_date, end_date,
-  days, status
-)
-
-intern_projects(
-  uuid, intern_uuid,
-  project_uuid, project_features
-)
-
-leaves(
-  uuid, employee_id,
-  request_type, type,
-  start_date, end_date,
-  days, status
-)
-
-notice_boards(
-  uuid, description, created_by
-)
-
-projects(
-  uuid, employee_id,
-  name, market,
-  description,
-  project_status,
-  billing_or_buffer
-)
-
-technologies(
-  uuid, technology_name,
-  category_id
-)
-
-QUESTION: {sentence}
+attendance_records(uuid, employee_id, date, check_in_time, check_out_time, status, leave_deducted)
+employees(uuid, employee_id, profile_image, first_name, last_name, official_email, job_role, contact_no)
+interns(uuid, intern_id, profile_image, first_name, last_name, personal_email, role, contact_no)
+intern_attendance_records(uuid, intern_id, date, check_in_time, check_out_time, status, leave_deducted)
+leaves(uuid, employee_id, request_type, type, start_date, end_date, days, status)
+intern_leaves(uuid, intern_id, request_type, type, start_date, end_date, days, status)
 
 OUTPUT JSON FORMAT:
 {{
-  "query_type": "SEND_EMAIL" | "DIRECT_SQL" | "TREND_ANALYSIS",
-  "sql_query": "SELECT official_email FROM ...",
-  "email_subject": "Warning" (Only for email type),
-  "email_body": "Your attendance is low..." (Only for email type)
+  "query_type": "DIRECT_SQL|SQL_WITH_STATS|PATTERN_DETECTION|ANOMALY_DETECTION|TREND_ANALYSIS|COMPARISON|CALCULATE_SALARY|SEND_EMAIL",
+  "sql_query": "SELECT ... (or null)",
+  "analysis_required": ["variance", "trend", "anomaly", "consistency", "pattern"],
+  "visualization": "line_chart|bar_chart|pie_chart|null",
+  
+  // FOR SALARY ONLY:
+  "target_name": "Rajesh",
+  "target_month": "2023-10",
+
+  // FOR EMAIL ONLY:
+  "email_subject": "Warning",
+  "email_body": "Your attendance is low..."
 }}
+
+QUESTION: {sentence}
 """
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -328,11 +233,12 @@ OUTPUT JSON FORMAT:
     except Exception as e:
         print(f"LLM Error: {e}")
         return {"sql_query": None}
-
+    
 
 # =========================
 # MAIN PIPELINE
 # =========================
+""" 
 def process_query(question: str) -> Dict[str, Any]:
     result = {
         "question": question, "query_info": None, "sql_query": None,
@@ -340,7 +246,7 @@ def process_query(question: str) -> Dict[str, Any]:
     }
     
     try:
-        print("🔄 Processing question...")
+        print("🔄 Processing...")
         
         # 1. Generate SQL & Intent
         query_info = sentence_to_sql(question)
@@ -387,6 +293,35 @@ def process_query(question: str) -> Dict[str, Any]:
                 result["response"] = f"❌ Failed to send emails. Error: {send_res['errors']}"
                 
             return result
+        
+        # --- PATH B: SALARY CALCULATION (No Hashing) ---
+        if query_type == "CALCULATE_SALARY":
+            target_name = query_info.get("target_name")
+            target_month = query_info.get("target_month")
+            
+            if not target_name:
+                result["response"] = "Please specify the employee name for salary calculation."
+                return result
+
+            calc = SalaryCalculator(DB_CONFIG)
+            salary_res = calc.calculate(target_name, target_month)
+            
+            if salary_res["status"] == "success":
+                d = salary_res["data"]
+                # Formulate a nice response
+                resp = (f"💰 **Salary Calculation for {d['name']} ({d['type'].title()})**\n"
+                        f"**Role:** {d['role']} | **Rate:** {d['currency']}{d['hourly_rate']}/hr\n"
+                        f"**Worked:** {d['worked_hours']} hrs | **Paid Leave:** {d['paid_leave_hours']} hrs\n"
+                        f"**Deficit:** {d['deficit']} hrs ({'Forgiven ✅' if d['deficit_forgiven'] else 'Deducted ❌'})\n"
+                        f"**Total Payable:** {d['payable_hours']} hrs\n"
+                        f"**Final Salary:** {d['currency']} {d['final_salary']:,}")
+                result["response"] = resp
+                # We can also pass raw data if we want to show a table
+                result["sql_data"] = [d] 
+            else:
+                result["response"] = f"❌ {salary_res['message']}"
+            
+            return result
 
         # --- PATH B: ANALYTICS (With Hashing) ---
         else:
@@ -415,13 +350,140 @@ def process_query(question: str) -> Dict[str, Any]:
             result["response"] = deanonymize_text(hashed_response, hash_map)
             
             return result
+        
     
     except Exception as e:
         print(f"Pipeline Error: {e}")
         result["response"] = f"Error: {e}"
     
     return result
+ """
+def process_query(question: str) -> Dict[str, Any]:
+    result = {
+        "question": question, "query_info": None, "sql_query": None,
+        "sql_data": [], "analytics": None, "response": "", "visualization": None
+    }
+    
+    try:
+        print("🔄 Processing...")
+        query_info = sentence_to_sql(question)
+        result["query_info"] = query_info
+        q_type = query_info.get("query_type")
+        
+        # --- PATH C: SALARY CALCULATION ---
+        if q_type == "CALCULATE_SALARY":
+            target = query_info.get("target_name", "").replace("@", "").strip()
+            target_upper = target.upper() # Normalize for checking
+            month = query_info.get("target_month")
+            calc = SalaryCalculator(DB_CONFIG)
+            
+            # --- FIX: ROBUST BULK DETECTION ---
+            if target_upper in ["ALL_EMPLOYEES", "EMPLOYEES", "ALL EMPLOYEES"]:
+                print("Calculating: Employees")
+                res = calc.calculate_all('employee', month)
+                
+            elif target_upper in ["ALL_INTERNS", "INTERNS", "ALL INTERNS"]:
+                print("Calculating: Interns")
+                res = calc.calculate_all('intern', month)
+                
+            else:
+                if not target:
+                    result["response"] = "Please specify a name."
+                    return result
+                print(f"Calculating: {target}")
+                res = calc.calculate(target, month)
+                # Normalize single result to list for unified processing
+                if res["status"] == "success":
+                    res["data"] = [res["data"]]
 
+            if res["status"] == "success":
+                data_list = res["data"]
+                if not data_list:
+                    result["response"] = "No matching records found to calculate salary."
+                else:
+                    # Generate Summary Table
+                    period = data_list[0]['month']
+                    header = f"### Salary Report ({period})\n\n"
+                    table = "| Name | Role | Worked | Payable | Final Salary |\n|---|---|---|---|---|\n"
+                    
+
+                    for d in data_list:
+                        table += f"| {d['name']} | {d['role']} | {d['worked_hours']}h | {d['payable_hours']}h | **{d['currency']} {d['final_salary']:,}** |\n"
+                    
+                    result["response"] = header + table
+                    result["sql_data"] = data_list # For frontend table
+            else:
+                result["response"] = f"❌ {res['message']}"
+            
+            return result
+
+        # --- OTHER PATHS ---
+        sql_query = query_info.get("sql_query")
+        if not sql_query:
+            result["response"] = "Could not understand the query."
+            return result
+
+        print(f"✅ Type: {q_type} | SQL: {sql_query}")
+        
+        # --- PATH A: SEND EMAIL (No Hashing) ---
+        if q_type == "SEND_EMAIL":
+            raw_data = execute_sql(sql_query)
+            recipients = []
+            for row in raw_data:
+                email = row.get("official_email") or row.get("personal_email") or row.get("email")
+                if email: recipients.append(email)
+            
+            if not recipients:
+                result["response"] = "No email addresses found for those employees."
+                return result
+
+            subject = query_info.get("email_subject", "Notification from HR Bot")
+            body = query_info.get("email_body", "Please check your HR portal.")
+            
+            print(f"📧 Sending to {len(recipients)} recipients...")
+            notifier = EmailNotifier()
+            send_res = notifier.send_batch(recipients, subject, body)
+            
+            if send_res["sent"] > 0:
+                result["response"] = f"✅ Email sent successfully to {send_res['sent']} recipient(s)."
+                if send_res["failed"] > 0:
+                    result["response"] += f" (Failed: {send_res['failed']})"
+            else:
+                result["response"] = f"❌ Failed to send emails. Error: {send_res['errors']}"
+            return result
+
+        # --- PATH B: ANALYTICS (With Hashing) ---
+        else:
+            raw_data = execute_sql(sql_query)
+            
+            # 1. Anonymize
+            anon_data, hash_map = anonymize_dataset(raw_data)
+            if hash_map:
+                print(f"🔐 [SECURITY] Masked {len(hash_map)} sensitive values.")
+            
+            result["sql_data"] = raw_data
+            if not raw_data:
+                result["response"] = "No data found."
+                return result
+            
+            # 2. Analyze
+            processor = AnalyticsProcessor(chart_output_dir="./charts")
+            analytics_result = processor.process(query_info, anon_data, hash_map)
+            
+            result["analytics"] = analytics_result.get("analysis")
+            result["visualization"] = analytics_result.get("visualization")
+            
+            # 3. De-anonymize Response
+            hashed_response = analytics_result.get("natural_language_response", "")
+            result["response"] = deanonymize_text(hashed_response, hash_map)
+            
+            return result
+    
+    except Exception as e:
+        print(f"Pipeline Error: {e}")
+        result["response"] = f"Error: {e}"
+    
+    return result
 if __name__ == "__main__":
     q = input("Question: ")
     print(process_query(q)["response"])
