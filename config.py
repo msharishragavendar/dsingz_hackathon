@@ -15,7 +15,7 @@ DB_CONFIG = {
 # =========================
 # API CONFIG
 # =========================
-OPENROUTER_API_KEY = "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"  # Replace with your key
+OPENROUTER_API_KEY = "sk-or-v1-"  # Replace with your key
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "deepseek/deepseek-chat"
@@ -26,8 +26,8 @@ MODEL = "deepseek/deepseek-chat"
 EMAIL_CONFIG = {
     "smtp_server": "smtp.gmail.com",
     "smtp_port": 587,
-    "sender_email": "your-email@gmail.com",  # UPDATE THIS
-    "sender_password": "your-app-password",   # UPDATE THIS (use App Password for Gmail)
+    "sender_email": "71762308027@cit.edu.in",  # UPDATE THIS
+    "sender_password": "arvkhusehayqjosb",   # UPDATE THIS (use App Password for Gmail)
     "use_tls": True
 }
 

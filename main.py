@@ -3,32 +3,38 @@ NL2SQL with AI/ML Analytics Engine
 Complete pipeline: Natural Language → SQL → MySQL → Analytics → Response
 """
 
+"""
+NL2SQL with AI/ML Analytics Engine
+Complete pipeline: Natural Language → SQL → MySQL → Analytics → Response
+"""
+
 import requests
 import json
 import re
 import mysql.connector
 import hashlib
 import copy
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
+
+# --- NEW IMPORTS ---
+try:
+    from config import DB_CONFIG, OPENROUTER_API_KEY, OPENROUTER_URL, MODEL
+except ImportError:
+    # Fallback if config.py is missing (using your current settings)
+    OPENROUTER_API_KEY = "sk-or-v1-"
+    MODEL = "deepseek/deepseek-chat"
+    OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+    DB_CONFIG = {
+        "host": "localhost",
+        "user": "root",
+        "password": "jinu", 
+        "database": "dz"
+    }
 
 from analytics import AnalyticsProcessor
 from analytics.nl_response_generator import NLResponseGenerator
-
-
-# =========================
-# CONFIG
-# =========================
-OPENROUTER_API_KEY = "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"
-MODEL = "deepseek/deepseek-chat"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "jinu",  # Update with your local password
-    "database": "dz"
-}
+from analytics.email_notifier import EmailNotifier  # <--- NEW FEATURE
 
 
 # =========================
@@ -38,25 +44,17 @@ SENSITIVE_FIELDS = ['first_name', 'last_name', 'contact_no', 'pan_number', 'emer
 EMAIL_FIELDS = ['official_email', 'personal_email']
 
 def generate_hash(value: str) -> str:
-    """Generate a consistent SHA-256 hash token (first 8 chars)."""
     if not value: return value
-    # Use a salt in production!
     hash_obj = hashlib.sha256(str(value).encode())
     return f"EMP_{hash_obj.hexdigest()[:8]}"
 
 def anonymize_dataset(data: List[Dict]) -> Tuple[List[Dict], Dict[str, str]]:
-    """
-    Anonymizes sensitive fields in a dataset.
-    Returns: (Anonymized Data, Reverse Mapping Dict)
-    """
-    if not data:
-        return [], {}
-
+    if not data: return [], {}
     anonymized_data = copy.deepcopy(data)
-    mapping = {}  # Stores { "EMP_1234": "Rahul" }
-
+    mapping = {}
+    
     for row in anonymized_data:
-        # 1. Hash Standard Fields (Names, Phones)
+        # 1. Hash Standard Sensitive Fields
         for field in SENSITIVE_FIELDS:
             if field in row and row[field]:
                 original = str(row[field])
@@ -64,7 +62,7 @@ def anonymize_dataset(data: List[Dict]) -> Tuple[List[Dict], Dict[str, str]]:
                 row[field] = token
                 mapping[token] = original
 
-        # 2. Hash Emails (only the part before @)
+        # 2. Hash Email Fields (Masking user part)
         for field in EMAIL_FIELDS:
             if field in row and row[field]:
                 original = str(row[field])
@@ -77,24 +75,19 @@ def anonymize_dataset(data: List[Dict]) -> Tuple[List[Dict], Dict[str, str]]:
                     token = generate_hash(original)
                     row[field] = token
                     mapping[token] = original
-    
     return anonymized_data, mapping
 
 def deanonymize_text(text: str, mapping: Dict[str, str]) -> str:
-    """Replaces hash tokens in text with original values."""
     if not text: return ""
-    
-    # Sort by length (descending) to prevent partial replacement issues
+    # Sort keys by length desc to avoid partial replacements
     sorted_tokens = sorted(mapping.keys(), key=len, reverse=True)
-    
     for token in sorted_tokens:
         text = text.replace(token, mapping[token])
-    
     return text
 
 
 # =========================
-# SQL SAFETY VALIDATION
+# SQL SAFETY & EXECUTION
 # =========================
 def validate_sql(sql: str) -> str:
     """Block dangerous SQL operations."""
@@ -105,41 +98,68 @@ def validate_sql(sql: str) -> str:
             raise ValueError(f"❌ Dangerous SQL blocked: {word}")
     return sql
 
+def execute_sql(sql_query: str) -> List[Dict[str, Any]]:
+    conn = None
+    cursor = None
+    try:
+        validate_sql(sql_query)
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(sql_query)
+        rows = cursor.fetchall()
+        
+        cleaned_rows = []
+        for row in rows:
+            cleaned_row = {}
+            for key, value in row.items():
+                if isinstance(value, datetime):
+                    cleaned_row[key] = value.isoformat()
+                elif hasattr(value, 'total_seconds'):
+                    cleaned_row[key] = value.total_seconds() / 3600
+                else:
+                    cleaned_row[key] = value
+            cleaned_rows.append(cleaned_row)
+        return cleaned_rows
+    except Exception as err:
+        print(f"❌ SQL Error: {err}")
+        return []
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+def get_employee_names() -> List[str]:
+    """Fetch names from Employees and Interns (Preserving your existing logic)."""
+    try:
+        sql = """
+        SELECT first_name, last_name FROM employees WHERE first_name IS NOT NULL
+        UNION
+        SELECT first_name, last_name FROM interns WHERE first_name IS NOT NULL
+        """
+        rows = execute_sql(sql)
+        names = [f"{r.get('first_name','')} {r.get('last_name','')}".strip() for r in rows]
+        return sorted(list(set(filter(None, names))))
+    except:
+        return []
+
 
 # =========================
-# EXTRACT SQL FROM LLM OUTPUT
+# LLM: SENTENCE → SQL
 # =========================
 def extract_query_info(raw_output: str) -> Dict[str, Any]:
-    raw_output = raw_output.strip()
-    if raw_output.startswith("```"):
-        raw_output = re.sub(r'^```\w*\n?', '', raw_output)
-        raw_output = re.sub(r'\n?```$', '', raw_output)
-    
+    raw_output = re.sub(r'^```\w*\n?', '', raw_output.strip())
+    raw_output = re.sub(r'\n?```$', '', raw_output)
     try:
         return json.loads(raw_output)
-    except json.JSONDecodeError:
-        pass
+    except:
+        # Fallback regex extraction
+        match = re.search(r'\{[\s\S]*\}', raw_output)
+        if match: return json.loads(match.group())
     
-    match = re.search(r'\{[\s\S]*\}', raw_output)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
-    
-    return {
-        "query_type": "DIRECT_SQL",
-        "sql_query": raw_output,
-        "analysis_required": [],
-        "visualization": None
-    }
+    # Default fallback
+    return {"query_type": "DIRECT_SQL", "sql_query": raw_output}
 
-
-# =========================
-# SENTENCE → SQL (LLM)
-# =========================
 def sentence_to_sql(sentence: str) -> Dict[str, Any]:
-    # (Keep your existing prompt exactly as is - shortened here for brevity)
+    # --- UPDATED PROMPT FOR EMAIL INTENT ---
     prompt = f"""
 You are an expert MySQL query generator with intelligent query classification capabilities.
 
@@ -281,162 +301,120 @@ technologies(
   category_id
 )
 
-QUESTION:
-{sentence}
+QUESTION: {sentence}
 
-OUTPUT JSON ONLY.
+OUTPUT JSON FORMAT:
+{{
+  "query_type": "SEND_EMAIL" | "DIRECT_SQL" | "TREND_ANALYSIS",
+  "sql_query": "SELECT official_email FROM ...",
+  "email_subject": "Warning" (Only for email type),
+  "email_body": "Your attendance is low..." (Only for email type)
+}}
 """
-
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "http://localhost",
     }
-
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0
     }
-
     try:
         response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
         response.raise_for_status()
-        raw_output = response.json()["choices"][0]["message"]["content"]
-        return extract_query_info(raw_output)
+        return extract_query_info(response.json()["choices"][0]["message"]["content"])
     except Exception as e:
         print(f"LLM Error: {e}")
         return {"sql_query": None}
 
 
 # =========================
-# EXECUTE SQL
-# =========================
-def execute_sql(sql_query: str) -> List[Dict[str, Any]]:
-    conn = None
-    cursor = None
-    try:
-        validate_sql(sql_query)
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(sql_query)
-        rows = cursor.fetchall()
-        
-        cleaned_rows = []
-        for row in rows:
-            cleaned_row = {}
-            for key, value in row.items():
-                if isinstance(value, datetime):
-                    cleaned_row[key] = value.isoformat()
-                elif hasattr(value, 'total_seconds'):
-                    cleaned_row[key] = value.total_seconds() / 3600
-                else:
-                    cleaned_row[key] = value
-            cleaned_rows.append(cleaned_row)
-        return cleaned_rows
-
-    except Exception as err:
-        print(f"❌ SQL Error: {err}")
-        return []
-    finally:
-        if cursor: cursor.close()
-        if conn: conn.close()
-
-# New Helper for Autocomplete
-
-def get_employee_names() -> List[str]:
-    """
-    Fetch distinct names from BOTH employees and interns for autocomplete.
-    """
-    try:
-        # We use UNION to combine names from both tables
-        sql = """
-        SELECT first_name, last_name FROM employees WHERE first_name IS NOT NULL
-        UNION
-        SELECT first_name, last_name FROM interns WHERE first_name IS NOT NULL
-        """
-        
-        rows = execute_sql(sql)
-        
-        names = []
-        for r in rows:
-            # Construct full name
-            full_name = f"{r.get('first_name', '')} {r.get('last_name', '')}".strip()
-            if full_name:
-                names.append(full_name)
-        
-        # Remove duplicates and sort alphabetically
-        return sorted(list(set(names)))
-        
-    except Exception as e:
-        print(f"❌ Error fetching names: {e}")
-        return []
-
-# =========================
 # MAIN PIPELINE
 # =========================
 def process_query(question: str) -> Dict[str, Any]:
-    """
-    Complete pipeline: NL → SQL → Execute → Anonymize → Analytics → De-anonymize → Response
-    """
     result = {
-        "question": question,
-        "query_info": None,
-        "sql_query": None,
-        "sql_data": [],
-        "analytics": None,
-        "response": "",
-        "visualization": None
+        "question": question, "query_info": None, "sql_query": None,
+        "sql_data": [], "analytics": None, "response": "", "visualization": None
     }
     
     try:
         print("🔄 Processing question...")
         
-        # 1. Generate SQL
+        # 1. Generate SQL & Intent
         query_info = sentence_to_sql(question)
         result["query_info"] = query_info
         sql_query = query_info.get("sql_query")
+        query_type = query_info.get("query_type")
         
-        if sql_query:
-            result["sql_query"] = sql_query
-            print(f"✅ SQL: {sql_query}")
-            
-            # 2. Execute SQL
+        if not sql_query:
+            result["response"] = "Could not understand the query."
+            return result
+
+        print(f"✅ Type: {query_type} | SQL: {sql_query}")
+        
+        # --- PATH A: SEND EMAIL (No Hashing) ---
+        if query_type == "SEND_EMAIL":
+            # Execute to find recipients
             raw_data = execute_sql(sql_query)
             
-            # --- SECURITY STEP: ANONYMIZE ---
+            # Extract emails
+            recipients = []
+            for row in raw_data:
+                # Check for various email column names
+                email = row.get("official_email") or row.get("personal_email") or row.get("email")
+                if email: recipients.append(email)
+            
+            if not recipients:
+                result["response"] = "No email addresses found for those employees."
+                return result
+
+            # Send Email
+            subject = query_info.get("email_subject", "Notification from HR Bot")
+            body = query_info.get("email_body", "Please check your HR portal.")
+            
+            print(f"📧 Sending to {len(recipients)} recipients...")
+            notifier = EmailNotifier()
+            send_res = notifier.send_batch(recipients, subject, body)
+            
+            # Formulate Response
+            if send_res["sent"] > 0:
+                result["response"] = f"✅ Email sent successfully to {send_res['sent']} recipient(s)."
+                if send_res["failed"] > 0:
+                    result["response"] += f" (Failed: {send_res['failed']})"
+            else:
+                result["response"] = f"❌ Failed to send emails. Error: {send_res['errors']}"
+                
+            return result
+
+        # --- PATH B: ANALYTICS (With Hashing) ---
+        else:
+            # Execute SQL
+            raw_data = execute_sql(sql_query)
+            
+            # 1. Anonymize
             anon_data, hash_map = anonymize_dataset(raw_data)
-            
             if hash_map:
-                print("\n🔐 [SECURITY] Sensitive Data Anonymized:")
-                print(json.dumps(hash_map, indent=2))
-                print("-" * 40)
+                print(f"🔐 [SECURITY] Masked {len(hash_map)} sensitive values.")
             
-            # Save RAW data for Frontend Table (Admin view)
-            result["sql_data"] = raw_data 
-            
+            result["sql_data"] = raw_data
             if not raw_data:
                 result["response"] = "No data found."
                 return result
             
-            # 3. Run Analytics (Using ANONYMIZED Data)
-            # This ensures the LLM and Analysis engine never see real PII
+            # 2. Analyze (Pass Hash Map for Charts)
             processor = AnalyticsProcessor(chart_output_dir="./charts")
-            analytics_result = processor.process(query_info, anon_data)
+            analytics_result = processor.process(query_info, anon_data, hash_map)
             
             result["analytics"] = analytics_result.get("analysis")
             result["visualization"] = analytics_result.get("visualization")
             
-            # 4. Get Response (Which currently contains Hashes like 'EMP_a1b2...')
+            # 3. De-anonymize Response
             hashed_response = analytics_result.get("natural_language_response", "")
+            result["response"] = deanonymize_text(hashed_response, hash_map)
             
-            # 5. De-anonymize the Text Response
-            # We swap 'EMP_a1b2' back to 'Rahul' for the final user message
-            clean_response = deanonymize_text(hashed_response, hash_map)
-            result["response"] = clean_response
-            
-        else:
-            result["response"] = "Could not generate SQL."
+            return result
     
     except Exception as e:
         print(f"Pipeline Error: {e}")
@@ -445,7 +423,5 @@ def process_query(question: str) -> Dict[str, Any]:
     return result
 
 if __name__ == "__main__":
-    # Test CLI
     q = input("Question: ")
-    res = process_query(q)
-    print(res["response"])
+    print(process_query(q)["response"])
