@@ -17,14 +17,14 @@ from analytics.nl_response_generator import NLResponseGenerator
 # =========================
 # CONFIG
 # =========================
-OPENROUTER_API_KEY = "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"  # Replace with your key
+OPENROUTER_API_KEY = " ..."  # Replace with your key
 MODEL = "deepseek/deepseek-chat"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 DB_CONFIG = {
     "host": "localhost",
     "user": "root",
-    "password": "data@123",
+    "password": "jinu",
     "database": "dsingz"
 }
 
@@ -353,7 +353,31 @@ def process_query(question: str) -> Dict[str, Any]:
     
     return result
 
+# [Append this to the bottom of main.py]
 
+def get_employee_names() -> List[str]:
+    """
+    Fetch distinct employee names for frontend autocomplete.
+    """
+    try:
+        # We fetch first and last names
+        sql = "SELECT first_name, last_name FROM employees WHERE first_name IS NOT NULL"
+        # Reuse existing execute_sql logic
+        rows = execute_sql(sql)
+        
+        # Format as "First Last"
+        names = []
+        for r in rows:
+            full_name = f"{r.get('first_name', '')} {r.get('last_name', '')}".strip()
+            if full_name:
+                names.append(full_name)
+        
+        # Remove duplicates and sort
+        return sorted(list(set(names)))
+    except Exception as e:
+        print(f"❌ Error fetching employee names: {e}")
+        return []
+    
 # =========================
 # CLI INTERFACE
 # =========================

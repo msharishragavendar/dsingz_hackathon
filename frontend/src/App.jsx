@@ -10,8 +10,25 @@ function App() {
     const [messages, setMessages] = useState([])
     const [input, setInput] = useState('')
     const [isLoading, setIsLoading] = useState(false)
+    
+    // Autocomplete States
+    const [employees, setEmployees] = useState([])
+    const [showSuggestions, setShowSuggestions] = useState(false)
+    const [filteredEmployees, setFilteredEmployees] = useState([])
+    const [cursorPosition, setCursorPosition] = useState(0)
+
     const chatEndRef = useRef(null)
     const textareaRef = useRef(null)
+
+    // 1. Fetch Employees on Load
+    useEffect(() => {
+        fetch('/api/employees')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) setEmployees(data.employees)
+            })
+            .catch(err => console.error("Failed to load employees", err))
+    }, [])
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -26,6 +43,45 @@ function App() {
         }
     }, [input])
 
+    // 2. Handle Input & Detect @
+    const handleInputChange = (e) => {
+        const val = e.target.value
+        setInput(val)
+        
+        // Logic to find word being typed
+        const cursor = e.target.selectionStart
+        setCursorPosition(cursor)
+        
+        const textBeforeCursor = val.slice(0, cursor)
+        const lastWordMatch = textBeforeCursor.match(/@([\w\s]*)$/)
+        
+        if (lastWordMatch) {
+            const query = lastWordMatch[1].toLowerCase()
+            const matches = employees.filter(emp => 
+                emp.toLowerCase().includes(query)
+            ).slice(0, 5) // Limit to 5 suggestions
+            
+            setFilteredEmployees(matches)
+            setShowSuggestions(matches.length > 0)
+        } else {
+            setShowSuggestions(false)
+        }
+    }
+
+    // 3. Handle Suggestion Click
+    const handleMentionClick = (name) => {
+        const textBeforeCursor = input.slice(0, cursorPosition)
+        const textAfterCursor = input.slice(cursorPosition)
+        
+        // Replace the partial @mention with the full name
+        const lastAtPos = textBeforeCursor.lastIndexOf('@')
+        const newText = textBeforeCursor.slice(0, lastAtPos) + `@${name} ` + textAfterCursor
+        
+        setInput(newText)
+        setShowSuggestions(false)
+        textareaRef.current.focus()
+    }
+
     const handleSubmit = async (messageText = input) => {
         if (!messageText.trim() || isLoading) return
 
@@ -36,6 +92,7 @@ function App() {
 
         setMessages(prev => [...prev, userMessage])
         setInput('')
+        setShowSuggestions(false) // Close popup
         setIsLoading(true)
 
         try {
@@ -73,6 +130,8 @@ function App() {
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
+            // If suggestions are open, select the first one (optional)
+            // For now, we prioritize sending logic
             handleSubmit()
         }
     }
@@ -119,13 +178,28 @@ function App() {
 
             {/* Input Area */}
             <div className="input-area">
+                {/* 4. Suggestion Popup (Now positioned correctly via CSS) */}
+                {showSuggestions && (
+                    <div className="suggestions-popup">
+                        {filteredEmployees.map((emp, idx) => (
+                            <div 
+                                key={idx} 
+                                className="suggestion-item"
+                                onClick={() => handleMentionClick(emp)}
+                            >
+                                <span className="avatar">👤</span> {emp}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 <div className="input-container">
                     <textarea
                         ref={textareaRef}
                         className="input-textarea"
-                        placeholder="Ask a question about your data..."
+                        placeholder="Type a question..."
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         rows={1}
                     />
@@ -144,8 +218,9 @@ function App() {
 }
 
 // ========================================
-// Welcome Screen Component
+// Restored UI Components
 // ========================================
+
 function WelcomeScreen({ onSuggestionClick }) {
     const suggestions = [
         { title: '📊 List Employees', text: 'List all employees with their details' },
@@ -177,9 +252,6 @@ function WelcomeScreen({ onSuggestionClick }) {
     )
 }
 
-// ========================================
-// Message Component
-// ========================================
 function Message({ message }) {
     return (
         <div className={`message ${message.role}`}>
@@ -241,9 +313,6 @@ function Message({ message }) {
     )
 }
 
-// ========================================
-// Data Table Component
-// ========================================
 function DataTable({ data }) {
     if (!data || data.length === 0) return null
 
@@ -281,9 +350,6 @@ function DataTable({ data }) {
     )
 }
 
-// ========================================
-// Typing Indicator Component
-// ========================================
 function TypingIndicator() {
     return (
         <div className="message assistant">
@@ -299,9 +365,6 @@ function TypingIndicator() {
     )
 }
 
-// ========================================
-// Send Icon Component
-// ========================================
 function SendIcon() {
     return (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">

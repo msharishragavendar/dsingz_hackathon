@@ -6,16 +6,17 @@ Configuration for NL2SQL Analytics Engine
 # DATABASE CONFIG
 # =========================
 DB_CONFIG = {
-    "host": "localhost",
+    "host": "127.0.0.1",
     "user": "root",
-    "password": "data@123",
+    "password": "jinu",
     "database": "dsingz"
 }
 
 # =========================
 # API CONFIG
 # =========================
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "sk-or-v1-dd61a1ec602ebd1eb5c03b43e90b92aae5cf7"  # Replace with your key
+
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "deepseek/deepseek-chat"
 
