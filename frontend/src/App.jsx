@@ -20,6 +20,8 @@ function App() {
     const [filteredEmployees, setFilteredEmployees] = useState([])
     const [cursorPosition, setCursorPosition] = useState(0)
 
+    const [includeChart, setIncludeChart] = useState(false)
+
     const chatEndRef = useRef(null)
     const textareaRef = useRef(null)
 
@@ -136,9 +138,12 @@ function App() {
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: messageText.trim() })
+                body: JSON.stringify({ 
+                    message: messageText.trim(),
+                    include_chart: includeChart 
+                })
             })
-
+            setIncludeChart(false)
             const data = await response.json()
 
             const assistantMessage = {
@@ -245,6 +250,16 @@ function App() {
                         onKeyDown={handleKeyDown}
                         rows={1}
                     />
+                    {/* --- NEW: Graph Toggle Button --- */}
+                    <button 
+                        className={`action-btn ${includeChart ? 'active' : ''}`}
+                        onClick={() => setIncludeChart(!includeChart)}
+                        title="Force Graph Generation"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: '5px' }}
+                    >
+                        <ChartIcon active={includeChart} />
+                    </button>
+
                     <button
                         className="send-btn"
                         onClick={() => handleSubmit()}
@@ -296,9 +311,9 @@ function App() {
 function WelcomeScreen({ onSuggestionClick }) {
     const suggestions = [
         { title: '📊 List Employees', text: 'List all employees with their details' },
-        { title: '📅 Attendance', text: 'Show attendance for this month' },
-        { title: '🏖️ Leave Stats', text: 'Show leave statistics by type' },
-        { title: '👥 Team Compare', text: 'Compare team performance' }
+        { title: '💰 Salary', text: 'Calculate salary for Rajesh Kumar' },
+        { title: '🕸️ Skills', text: 'Analyze skills for Rajesh Kumar' },
+        { title: '📈 Trends', text: 'Show attendance trend for Rajesh' }
     ]
 
     return (
@@ -323,7 +338,6 @@ function WelcomeScreen({ onSuggestionClick }) {
         </div>
     )
 }
-
 function Message({ message }) {
     return (
         <div className={`message ${message.role}`}>
@@ -355,30 +369,28 @@ function Message({ message }) {
                     {message.content}
                 </ReactMarkdown>
 
-                {/* Data Table Display */}
+                {/* Data Table */}
                 {message.data && message.data.length > 0 && (
                     <DataTable data={message.data} />
                 )}
 
-                {/* SQL Query Display */}
+                {/* SQL Query */}
                 {message.sql && (
                     <div className="sql-query">
                         <strong>SQL:</strong> {message.sql}
                     </div>
                 )}
 
-                {/* Chart Display */}
+                {/* Chart Image */}
                 {message.chart && (
                     <div className="chart-container">
                         <img src={message.chart} alt="Generated Chart" />
                     </div>
                 )}
 
-                {/* Error Display */}
+                {/* Error */}
                 {message.error && (
-                    <div className="error-message">
-                        ⚠️ {message.error}
-                    </div>
+                    <div className="error-message">⚠️ {message.error}</div>
                 )}
             </div>
         </div>
@@ -442,6 +454,15 @@ const GearIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V4a2 2 0 0 0-2-2z"></path>
         <circle cx="12" cy="12" r="3"></circle>
+    </svg>
+)
+
+const ChartIcon = ({ active }) => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? "#0d6efd" : "currentColor"} strokeWidth="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <line x1="8" y1="17" x2="8" y2="11" />
+        <line x1="12" y1="17" x2="12" y2="8" />
+        <line x1="16" y1="17" x2="16" y2="13" />
     </svg>
 )
 

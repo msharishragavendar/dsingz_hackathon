@@ -15,7 +15,7 @@ DB_CONFIG = {
 # =========================
 # API CONFIG
 # =========================
-OPENROUTER_API_KEY = "sk-or-v1-"  # Replace with your key
+OPENROUTER_API_KEY = "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"  # Replace with your key
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "deepseek/deepseek-chat"

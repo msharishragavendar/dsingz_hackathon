@@ -12,7 +12,7 @@ from .time_series import TimeSeriesAnalyzer
 from .anomaly_detector import AnomalyDetector
 from .pattern_analyzer import PatternAnalyzer
 from .visualizer import Visualizer
-
+from .skill_radar import SkillRadarChart
 
 class AnalyticsProcessor:
     """
@@ -25,7 +25,7 @@ class AnalyticsProcessor:
         self.anomaly = AnomalyDetector()
         self.pattern = PatternAnalyzer()
         self.visualizer = Visualizer(output_dir=chart_output_dir)
-    
+        self.radar = SkillRadarChart(output_dir=chart_output_dir)
     # ---------------------------------------------------------
     # FIX: Added 'hash_map' argument here
     # ---------------------------------------------------------
@@ -58,6 +58,23 @@ class AnalyticsProcessor:
         # Route to appropriate processor
         if query_type == "DIRECT_SQL":
             result["analysis"] = self._process_direct_sql(sql_data)
+        elif query_type == "SKILL_ANALYSIS":
+            # Assume SQL returns: category_name, avg_score
+            cats = [row.get('category_name') for row in sql_data]
+            scores = [float(row.get('avg_skill_score', 0)) for row in sql_data]
+            emp_name = "Employee"
+            if sql_data:
+                # Try to find name in result
+                fname = sql_data[0].get('first_name')
+                lname = sql_data[0].get('last_name')
+                if fname: 
+                    # Deanonymize name for the chart title
+                    full_name = f"{fname} {lname}".strip()
+                    emp_name = self._deanonymize_label(full_name, hash_map)
+
+            result["visualization"] = self.radar.generate_radar_chart(cats, scores, emp_name)
+            result["natural_language_response"] = f"Generated skill profile for {emp_name}."
+            return result
         elif query_type == "SQL_WITH_STATS":
             result["analysis"] = self._process_with_stats(sql_data, analysis_required, metric)
         elif query_type == "PATTERN_DETECTION":
@@ -71,16 +88,13 @@ class AnalyticsProcessor:
         
         # Generate visualization if requested
         if visualization:
-            # ---------------------------------------------------------
-            # FIX: Passing hash_map to visualization generator
-            # ---------------------------------------------------------
-            result["visualization"] = self._generate_visualization(
-                sql_data, visualization, metric, result["analysis"], hash_map
-            )
-        
-        # Generate natural language response
-        result["natural_language_response"] = self._generate_nl_response(result)
-        
+                    result["visualization"] = self._generate_visualization(sql_data, visualization, metric, {}, hash_map)
+                    
+                # Basic response generation
+        result["natural_language_response"] = f"Found {len(sql_data)} records."
+        if result["visualization"]:
+            result["natural_language_response"] += " 📊 Chart generated."
+            
         return result
 
     def _deanonymize_label(self, label: str, hash_map: Dict[str, str]) -> str:
@@ -206,64 +220,36 @@ class AnalyticsProcessor:
     # ---------------------------------------------------------
     # FIX: Added hash_map argument here too
     # ---------------------------------------------------------
-    def _generate_visualization(
-        self,
-        data: List[Dict],
-        viz_type: str,
-        metric: str,
-        analysis: Dict,
-        hash_map: Dict[str, str] = None
-    ) -> Dict[str, Any]:
-        """Generate appropriate visualization with DE-ANONYMIZED labels."""
+    def _generate_visualization(self, data, viz_type, metric, analysis, hash_map):
+        # Extract Categories and Values with Deanonymization
         try:
             if viz_type == "line_chart":
-                dates = self._extract_dates(data, "month") or self._extract_dates(data, "date") or [f"Point {i+1}" for i in range(len(data))]
-                y_key = None
-                for key in ["present_count", "count", "work_hours", "present_days", "attendance_rate"]:
-                    if key in (data[0] if data else {}):
-                        y_key = key
-                        break
-                
-                if y_key:
-                    values = self._extract_numeric_values(data, y_key)
-                    # De-anonymize x-axis labels if they contain names
-                    dates = [self._deanonymize_label(d, hash_map) for d in dates]
-                    return self.visualizer.line_chart(dates[:len(values)], values, title=f"{metric.title()} Trend", y_label=y_key.replace('_', ' ').title())
+                dates = [str(r.get('date', '')) for r in data]
+                values = [float(r.get('count', r.get('work_hours', 0))) for r in data]
+                return self.visualizer.line_chart(dates, values, title=f"{metric} Trend")
             
             elif viz_type == "bar_chart":
-                categories = []
-                values = []
-                if analysis.get("type") == "comparison":
-                    for c in analysis.get("comparisons", []):
-                        # De-anonymize Name
-                        categories.append(self._deanonymize_label(c["name"], hash_map))
-                        values.append(c.get("present_days", c.get("count", 0)))
-                else:
-                    for row in data:
-                        cat = row.get("name") or row.get("month") or row.get("status", "")
-                        if "first_name" in row: cat = f"{row.get('first_name','')} {row.get('last_name','')}".strip()
-                        categories.append(self._deanonymize_label(str(cat), hash_map))
-                        values.append(float(row.get("count", row.get("days", 0))))
+                cats = []
+                vals = []
+                for r in data:
+                    # Find category key (name, month, status)
+                    k = r.get('first_name') or r.get('name') or r.get('status')
+                    if r.get('first_name'): k = f"{r.get('first_name')} {r.get('last_name')}"
+                    
+                    cats.append(self._deanonymize_label(str(k), hash_map))
+                    vals.append(float(r.get('count', r.get('days', 0))))
+                return self.visualizer.bar_chart(cats, vals, title=f"{metric} Comparison")
                 
-                if categories and values:
-                    return self.visualizer.bar_chart(categories, values, title=f"{metric.title()} Comparison")
-            
             elif viz_type == "pie_chart":
-                categories = []
-                values = []
-                for row in data:
-                    cat = row.get("status") or row.get("type") or row.get("name", "")
-                    categories.append(self._deanonymize_label(str(cat), hash_map))
-                    values.append(float(row.get("count", row.get("days", 1))))
+                cats = [self._deanonymize_label(r.get('status', r.get('type', '')), hash_map) for r in data]
+                vals = [float(r.get('count', 0)) for r in data]
+                return self.visualizer.pie_chart(cats, vals, title=f"{metric} Distribution")
                 
-                if categories and values:
-                    return self.visualizer.pie_chart(categories, values, title=f"{metric.title()} Distribution")
-        
         except Exception as e:
             return {"status": "error", "message": str(e)}
-        
         return {"status": "skipped"}
-
+    
+    
     def _generate_nl_response(self, result: Dict) -> str:
         sql_data = result.get("sql_data", [])
         return f"Found {len(sql_data)} records."
